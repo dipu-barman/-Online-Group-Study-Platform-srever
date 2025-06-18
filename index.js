@@ -1,26 +1,71 @@
-const express = require('express')
-const cors = require('cors')
-require('dotenv').config()
 
+
+const express = require('express');
+const cors = require('cors');
+require('dotenv').config();
+const cookieParser = require('cookie-parser'); // fixed typo
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
-const app = express()
+const app = express();
+const port = process.env.PORT || 3000;
 
-const port = process.env.PORT || 3000
+// middleware
+app.use(cookieParser());
+app.use(express.json());
 
-// midlewere
-app.use(cors())
-app.use(express.json())
+const jwt = require('jsonwebtoken');
+
+// app.use(
+//   cors({
+//     origin: [
+//       'https://assignment-11-41e71.web.app',
+//       'https://assignment-11-41e71.firebaseapp.com',
+//       'http://localhost:5173'
+//     ],
+//     credentials: true,
+//   })
+// );
+
+
+const allowedOrigins = [
+  'https://assignment-11-41e71.web.app',
+  'https://assignment-11-41e71.firebaseapp.com',
+  'http://localhost:5173',
+  'http://localhost:5173/pending'
+];
+
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin) return callback(null, true); // allow non-browser requests or same-origin
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, origin); // echo back the requesting origin if allowed
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 
 
 
-// console.log(process.env.DB_USER)
 
+// JWT token verification
+const verifyToken = (req, res, next) => {
+  const token = req.cookies?.token;
+  if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+  }
+  jwt.verify(token, process.env.ACCESS_SECRET_TOKEN, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "unauthorized member" });
+    }
+    req.tokenOwner = decoded;
+    next();
+  });
+};
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@jobportal.22lev66.mongodb.net/?retryWrites=true&w=majority&appName=jobportal`;
 
-
-// Create a MongoClient with a MongoClientOptions object to set the Stable API version
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -31,279 +76,176 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Connect the client to the server	(optional starting in v4.7)
-    // await client.connect();
+    await client.connect();
 
-    
     const publicAssignmets = client.db('publicAssignmets').collection('assignmets');
-     const allAssignmets = client.db('publicAssignmets').collection('assignmentmark');
+    const allAssignmets = client.db('publicAssignmets').collection('assignmentmark');
+    const userCollection = client.db('publicAssignmets').collection('users'); // added
+    const freeCollection = client.db('publicAssignmets').collection('free');   // added
 
-    // show all asignmets 
     app.get('/assignmets', async (req, res) => {
-      // const cursor = coffeesCollection.find()
       const result = await publicAssignmets.find().toArray();
-      res.send(result)
+      res.send(result);
     });
 
+    app.post("/jwt", (req, res) => {
+      const user = req.body;
+      const token = jwt.sign(user, process.env.ACCESS_SECRET_TOKEN, {
+        expiresIn: "1d",
+      });
+      res.cookie("token", token, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax" 
+      })
+        .send({ success: true, token });    
+    });
+
+    app.post("/logout", (req, res) => {
+      res
+        .clearCookie("token", {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+        })
+        .send({ successfully_logOut: true });
+    });
 
     app.get('/assignmets/:id', async (req, res) => {
-      const id = req.params.id
-      const query = { _id: new ObjectId(id) }
-      const result = await publicAssignmets.findOne(query)
-      res.send(result)
-    })
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await publicAssignmets.findOne(query);
+      res.send(result);
+    });
 
-
-    
-    /// all public assigmets post 
-    app.post('/assignmets', async (req, res) => {
-      const newfree = req.body
-      console.log(newfree)
+    app.post('/assignmets', verifyToken, async (req, res) => {
+      const newfree = req.body;
+      console.log('token is ', req.cookies);
       const result = await publicAssignmets.insertOne(newfree);
       res.send(result);
     });
 
-    
-    // app.put('/assignmets/:id', async (req, res) => {
-    //   const id = req.params.id
-    //   console.log(id)
-    //   const filter = { _id: new ObjectId(id) }
-    //   // const options ={upsert :true}
-    //   const update = req.body
-
-    //   console.log(update)
-
-    //   const updatedDoc = {
-    //     $set: update
-    //   }
-            
-    //   // const updatedDoc ={
-    //   //         $set :{
-    //   //            status: update.phendingvalue,
-    //   //           // obtainedmark,,feedback,date,status
-
-    //   //           obtainedmark :update.obtainedmark,
-    //   //            techer: update.techer,
-    //   //            date:update.date
-    //   //         }
-    //   //       }
-    //   const result = await publicAssignmets.updateOne(filter,updatedDoc)
-    //   console.log(result)
-    //   res.send(result)
-    // })
-    
-
-
     app.put('/assignmets/:id', async (req, res) => {
       try {
-        const id      = req.params.id;
-        const filter  = { _id: new ObjectId(id) };
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const update = req.body;
 
-        // ✅ use req.body (NOT res.body)
-        const update  = req.body;     // <- e.g. { name: "Alice", email: "a@b.com" }
-
-        // Optional: guard against empty body
         if (!update || Object.keys(update).length === 0) {
           return res.status(400).json({ error: 'No data provided to update.' });
         }
 
         const updatedDoc = { $set: update };
-
         const result = await publicAssignmets.updateOne(filter, updatedDoc);
-        console.log(result);
-
         res.send(result);
       } catch (err) {
-        console.error(err);
         res.status(500).json({ error: 'Failed to update document.' });
       }
     });
 
+    // deleate methhoed
 
-
-
-
-
-
-    
     app.delete('/assignmets/:id', async (req, res) => {
-      const id = req.params.id
-      const query = { _id: new ObjectId(id) }
-      const result = await publicAssignmets.deleteOne(query)
-      res.send(result)
-    })
-
-
-
-    // ..allll student mark
-
-     app.get('/assignmentmark', async (req, res) => {
-      // const cursor = coffeesCollection.find()
-      const result = await allAssignmets.find().toArray();
-      res.send(result)
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await publicAssignmets.deleteOne(query);
+      res.send(result);
     });
 
+    // get all assignment mark data
+
+    app.get('/assignmentmark', async (req, res) => {
+      const result = await allAssignmets.find().toArray();
+      res.send(result);
+    });
 
     app.get('/assignmentmark/:id', async (req, res) => {
-      const id = req.params.id
-      const query = { _id: new ObjectId(id) }
-      const result = await allAssignmets.findOne(query)
-      res.send(result)
-    })
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await allAssignmets.findOne(query);
+      res.send(result);
+    });
 
-
-
-     app.post('/assignmentmark', async (req, res) => {
-      const newfree = req.body
-      console.log(newfree)
+    app.post('/assignmentmark', verifyToken, async (req, res) => {
+      const newfree = req.body;
+      console.log('token  is ', req.cookies)
       const result = await allAssignmets.insertOne(newfree);
       res.send(result);
     });
 
+    app.put('/assignmentmark/:id', async (req, res) => {
+      const id = req.params.id;
 
+      const filter = { _id: new ObjectId(id) };
+      const update = req.body;
 
-     app.put('/assignmentmark/:id', async (req, res) => {
-      const id = req.params.id
-      console.log(id)
-      const filter = { _id: new ObjectId(id) }
-      // const options ={upsert :true}
-      const update = req.body
+      const updatedDoc = {
+        $set: {
+          status: update.phendingvalue,
+          obtainedmark: update.obtainedmark,
+          techer: update.techer,
+          date: update.date
+        }
+      };
 
-      console.log(update)
-
-      // const updatedDoc = {
-      //   $set: update
-      // }
-            
-      const updatedDoc ={
-              $set :{
-                 status: update.phendingvalue,
-                // obtainedmark,,feedback,date,status
-
-                obtainedmark :update.obtainedmark,
-                 techer: update.techer,
-                 date:update.date
-              }
-            }
-      const result = await allAssignmets.updateOne(filter,updatedDoc)
-      console.log(result)
-      res.send(result)
-    })
-
-
-
-    // app.get('/free/:id', async (req, res) => {
-    //   const id = req.params.id
-    //   const query = { _id: new ObjectId(id) }
-    //   const result = await freeCollection.findOne(query)
-    //   res.send(result)
-    // })
-
-
-
-    // app.post('/free', async (req, res) => {
-    //   const newfree = req.body
-   
-
-    
-
-
-    
+      const result = await allAssignmets.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
 
     app.delete('/free/:id', async (req, res) => {
-      const id = req.params.id
-      const query = { _id: new ObjectId(id) }
-      const result = await freeCollection.deleteOne(query)
-      res.send(result)
-    })
-
-
-   
-
-    // for public or front page or all assignmet api ;
-    // app.post('/')
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await freeCollection.deleteOne(query);
+      res.send(result);
+    });
 
     app.post('/users', async (req, res) => {
-      const profile = req.body
-      console.log(profile)
+      const profile = req.body;
       const result = await userCollection.insertOne(profile);
-      res.send(result)
-    })
-
+      res.send(result);
+    });
 
     app.get('/users', async (req, res) => {
-      // const cursor = coffeesCollection.find()
-
-      const result = await userCollection.find().toArray()
-      res.send(result)
-    })
+      const result = await userCollection.find().toArray();
+      res.send(result);
+    });
 
     app.delete('/users/:id', async (req, res) => {
-      const id = req.params.id
-      const query = { _id: new ObjectId(id) }
-      const result = await userCollection.deleteOne(query)
-      res.send(result)
-    })
-
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await userCollection.deleteOne(query);
+      res.send(result);
+    });
 
     app.patch('/users', async (req, res) => {
-
-      //    console.log(id)
-      //  const filter = {_id:new ObjectId(id)}
-      // const options ={upsert :true}
-      const { email, lastSignInTime } = req.body
-      const filter = { email: email }
-
-      //   console.log(update)
+      const { email, lastSignInTime } = req.body;
+      const filter = { email: email };
 
       const updatedDoc = {
         $set: { lastSignInTime: lastSignInTime }
-      }
+      };
 
-      const result = await userCollection.updateOne(filter, updatedDoc)
-      console.log(result)
-      res.send(result)
-    })
+      const result = await userCollection.updateOne(filter, updatedDoc);
+      res.send(result);
+    });
 
-
-    // Send a ping to confirm a successful connection
-    // await client.db("admin").command({ ping: 1 });
-    // console.log("Pinged your deployment. You successfully connected to MongoDB!");
   } finally {
-    // Ensures that the client will close when you finish/error
-    // await client.close();
+    // await client.close(); // left commented in case you want to persist connection
   }
 }
 run().catch(console.dir);
 
-
-
-
 app.get('/', (req, res) => {
-  res.send('Hello World!')
-})
-
+  res.send('Hello World!');
+});
 
 app.listen(port, () => {
-  console.log(`Example app listening on port ${port}`)
-})
+  console.log(`Example app listening on port ${port}`);
+});
+
+
+
+
+
+
+
