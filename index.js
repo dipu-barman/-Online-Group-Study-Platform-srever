@@ -88,6 +88,8 @@ async function run() {
       res.send(result);
     });
 
+    // jwt........
+    
     app.post("/jwt", (req, res) => {
       const user = req.body;
       const token = jwt.sign(user, process.env.ACCESS_SECRET_TOKEN, {
@@ -110,6 +112,8 @@ async function run() {
         })
         .send({ successfully_logOut: true });
     });
+
+    // all pubilc assignment .....
 
     app.get('/assignmets/:id', async (req, res) => {
       const id = req.params.id;
