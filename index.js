@@ -159,6 +159,10 @@ async function run() {
       res.send(result);
     });
 
+
+  //get specfic assignment mark
+  
+  
     app.get('/assignmentmark/:id', async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
