@@ -203,10 +203,7 @@ async function run() {
 
     // app.post('/free', async (req, res) => {
     //   const newfree = req.body
-    //   console.log(newfree)
-    //   const result = await freeCollection.insertOne(newfree);
-    //   res.send(result)
-    // })
+   
 
     
 
