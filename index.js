@@ -3,6 +3,8 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
+
+const jwt = require('jsonwebtoken');
 const cookieParser = require('cookie-parser'); // fixed typo
 
 const { MongoClient, ServerApiVersion, ObjectId } = require('mongodb');
@@ -12,57 +14,83 @@ const port = process.env.PORT || 3000;
 // middleware
 app.use(cookieParser());
 app.use(express.json());
-
-const jwt = require('jsonwebtoken');
-
-// app.use(
-//   cors({
-//     origin: [
-//       'https://assignment-11-41e71.web.app',
-//       'https://assignment-11-41e71.firebaseapp.com',
-//       'http://localhost:5173'
-//     ],
-//     credentials: true,
-//   })
-// );
-
-
-const allowedOrigins = [
-  'https://assignment-11-41e71.web.app',
-  'https://assignment-11-41e71.firebaseapp.com',
-  'http://localhost:5173',
-  'http://localhost:5173/pending'
-];
-
 app.use(cors({
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true); // allow non-browser requests or same-origin
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, origin); // echo back the requesting origin if allowed
-    } else {
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true
-}));
+  origin:['http://localhost:5173'],
+  credentials:true
+}))
+
+// use logger......
+
+const logger=(req,res,next)=>{
+  console.log('inside the logger midel where')
+  next()
+}
+
+// veryfie tooken ......
+
+const verifyToken = (req, res, next) =>{
+
+  const token = req?.cookies?.token;
+  console.log('cookie in the midelwere',req.cookies)
+   if (!token) {
+    return res.status(401).send({ message: "unauthorized access" });
+   }
+
+// veryfie.....here
+
+   jwt.verify(token, process.env.JWT_ACCESS_SECRET, (err, decoded) => {
+    if (err) {
+      return res.status(401).send({ message: "unauthorized access" });
+   }
+   console.log(decoded)
+   req.decoded = decoded;
+    next();
+  });
+
+    // 
+  // next()
+}
+
+
+
+// const allowedOrigins = [
+//   'https://assignment-11-41e71.web.app',
+//   'https://assignment-11-41e71.firebaseapp.com',
+//   'http://localhost:5173',
+//   'http://localhost:5173/pending'
+// ];
+
+
+// app.use(cors({
+//   origin: function(origin, callback) {
+//     if (!origin) return callback(null, true); // allow non-browser requests or same-origin
+//     if (allowedOrigins.indexOf(origin) !== -1) {
+//       callback(null, origin); // echo back the requesting origin if allowed
+//     } else {
+//       callback(new Error('Not allowed by CORS'));
+//     }
+//   },
+//   credentials: true
+// }));
 
 
 
 
 // JWT token verification
-const verifyToken = (req, res, next) => {
-  const token = req.cookies?.token;
-  if (!token) {
-    return res.status(401).send({ message: "unauthorized access" });
-  }
-  jwt.verify(token, process.env.ACCESS_SECRET_TOKEN, (err, decoded) => {
-    if (err) {
-      return res.status(401).send({ message: "unauthorized member" });
-    }
-    req.tokenOwner = decoded;
-    next();
-  });
-};
+
+// const verifyToken = (req, res, next) => {
+//   const token = req.cookies?.token;
+//   if (!token) {
+//     return res.status(401).send({ message: "unauthorized access" });
+//   }
+//   jwt.verify(token, process.env.ACCESS_SECRET_TOKEN, (err, decoded) => {
+//     if (err) {
+//       return res.status(401).send({ message: "unauthorized member" });
+//     }
+//     req.tokenOwner = decoded;
+//     next();
+//   });
+// };
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@jobportal.22lev66.mongodb.net/?retryWrites=true&w=majority&appName=jobportal`;
 
@@ -80,40 +108,74 @@ async function run() {
 
     const publicAssignmets = client.db('publicAssignmets').collection('assignmets');
     const allAssignmets = client.db('publicAssignmets').collection('assignmentmark');
-    const userCollection = client.db('publicAssignmets').collection('users'); // added
-    const freeCollection = client.db('publicAssignmets').collection('free');   // added
-
-    app.get('/assignmets', async (req, res) => {
-      const result = await publicAssignmets.find().toArray();
-      res.send(result);
-    });
+    // const userCollection = client.db('publicAssignmets').collection('users'); // added
+    
+    
 
     // jwt........
     
-    app.post("/jwt", (req, res) => {
-      const user = req.body;
-      const token = jwt.sign(user, process.env.ACCESS_SECRET_TOKEN, {
-        expiresIn: "1d",
+    // app.post("/jwt", (req, res) => {
+    //   const user = req.body;
+    //   const token = jwt.sign(user, process.env.ACCESS_SECRET_TOKEN, {
+    //     expiresIn: "1d",
+    //   });
+    //   res.cookie("token", token, {
+    //     httpOnly: true,
+    //     secure: process.env.NODE_ENV === "production",
+    //     sameSite: process.env.NODE_ENV === "production" ? "none" : "lax" 
+    //   })
+    //     .send({ success: true, token });    
+    // });
+
+
+    // jwt post ........
+
+    app.post("/jwt", async(req, res) => {
+      const userData = req.body;
+      // const {email} = req.body;
+
+      const token = jwt.sign(userData, process.env.JWT_ACCESS_SECRET, 
+        {expiresIn: "1d",
       });
       res.cookie("token", token, {
         httpOnly: true,
-        secure: process.env.NODE_ENV === "production",
-        sameSite: process.env.NODE_ENV === "production" ? "none" : "lax" 
+        // secure: process.env.NODE_ENV === "production",
+         secure: false,
+        // sameSite: process.env.NODE_ENV === "production" ? "none" : "lax" 
       })
-        .send({ success: true, token });    
+       res.send({ success: true });    
     });
 
-    app.post("/logout", (req, res) => {
-      res
-        .clearCookie("token", {
-          httpOnly: true,
-          secure: process.env.NODE_ENV === "production",
-          sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
-        })
-        .send({ successfully_logOut: true });
-    });
+
+
+
+
+    // app.post("/logout", (req, res) => {
+    //   res
+    //     .clearCookie("token", {
+    //       httpOnly: true,
+    //       secure: process.env.NODE_ENV === "production",
+    //       sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
+    //     })
+    //     .send({ successfully_logOut: true });
+    // });
 
     // all pubilc assignment .....
+
+
+
+    app.get('/assignmets', async (req, res) => {
+      // const email = req.query.email
+      // if (email!==req.decoded.email){
+      //   return res.status(403).send({message:'forbiden access'})
+      // }
+      // console.log('inside...',req.cookies)
+      // const query ={
+      //   applicant:email
+      // }
+      const result = await publicAssignmets.find(query).toArray();
+      res.send(result);
+    });
 
     app.get('/assignmets/:id', async (req, res) => {
       const id = req.params.id;
@@ -122,7 +184,7 @@ async function run() {
       res.send(result);
     });
 
-    app.post('/assignmets', verifyToken, async (req, res) => {
+    app.post('/assignmets',  async (req, res) => {
       const newfree = req.body;
       console.log('token is ', req.cookies);
       const result = await publicAssignmets.insertOne(newfree);
@@ -176,7 +238,7 @@ async function run() {
 
     // Create-assignment-data
 
-    app.post('/assignmentmark', verifyToken, async (req, res) => {
+    app.post('/assignmentmark', async (req, res) => {
       const newfree = req.body;
       console.log('token  is ', req.cookies)
       const result = await allAssignmets.insertOne(newfree);
@@ -247,7 +309,7 @@ async function run() {
 run().catch(console.dir);
 
 app.get('/', (req, res) => {
-  res.send('Hello World!');
+  res.send('Hello World with assignments');
 });
 
 app.listen(port, () => {
